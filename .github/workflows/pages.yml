@@ -1,6 +1,6 @@
 name: deploy-pages
 
-# 대시보드만 다시 빌드해 GitHub Pages 로 배포한다.
+# 대시보드만 다시 빌드해 gh-pages 브랜치로 배포한다 (GitHub Pages 자동 갱신).
 # - main 에 대시보드/데이터 변경이 푸시되면 자동 배포
 # - Actions 탭에서 수동 실행(workflow_dispatch)도 가능
 # 크롤링 워크플로(crawl.yml)도 매 크롤 후 자체적으로 배포하므로,
@@ -16,16 +16,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: github-pages
   cancel-in-progress: false
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,28 +33,17 @@ jobs:
           python-version: '3.11'
 
       # build_dashboard.py 는 표준 라이브러리만 사용 — 의존성 설치 불필요
-      - name: Build dashboard site
+      - name: Build & deploy dashboard to gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p _site
           python dashboard/build_dashboard.py --out _site/index.html
-
-      - name: Setup Pages (자동 활성화 포함)
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          touch _site/.nojekyll
+          cd _site
+          git init -b gh-pages
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "deploy: dashboard $(date -u +'%Y-%m-%d %H:%MZ')"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
