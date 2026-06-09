@@ -79,6 +79,23 @@ python -m crawler.main --keys gmarket_fresh    # 특정 타겟만
 python -m crawler.main --all --now "2026-06-09T10:30:00"  # 기준시각 지정(테스트)
 ```
 
+## 대시보드
+
+수집된 SQLite(`crawl_runs` + `product_ranks`)를 기반으로 정적 HTML 대시보드를
+생성한다. 외부 CDN/JS 없이 인라인 CSS+SVG 로 그려 오프라인에서도 그대로 열린다.
+
+```bash
+python scripts/seed_sample.py          # (선택) 데모용 샘플 데이터 시드
+python dashboard/build_dashboard.py    # data/shop.db → dashboard/index.html
+# 브라우저로 dashboard/index.html 열기
+```
+
+구성: KPI(타겟 수·수집 상품·평균 할인율·평균 평점·품절), 타겟별 평균 할인율 및
+판매량(톡딜 주문수·NS 구매수) 막대 차트, 타겟별 순위 테이블(정가/판매가/할인 막대,
+판매량·리뷰, 평점, AD/품절 배지). `--date YYYY-MM-DD` 로 특정 일자 조회.
+
+![대시보드 미리보기](dashboard/preview.png)
+
 ## 스케줄 (GitHub Actions)
 
 `.github/workflows/crawl.yml` 의 cron 으로 매일 자동 실행되며, `workflow_dispatch`
