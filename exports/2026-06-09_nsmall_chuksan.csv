@@ -1,0 +1,11 @@
+﻿rank,product_name,product_id,list_price,sale_price,discount_rate,sales_qty,order_count,review_count,rating,is_sold_out,is_ad,product_url
+1,1++ 한우 불고기 1000g,nsm1001,12900,9030,30,640,640,4082,4.9,0,0,https://example.com/nsmall_chuksan/1001
+2,이베리코 목살 3g,nsm1002,39000,29250,25,783,783,3741,4.5,0,0,https://example.com/nsmall_chuksan/1002
+3,토종닭 5호,nsm1003,25000,12500,50,2000,2000,1118,4.8,0,0,https://example.com/nsmall_chuksan/1003
+4,양념 LA갈비 3g,nsm1004,79000,63200,20,1081,1081,2188,4.8,0,0,https://example.com/nsmall_chuksan/1004
+5,1++ 한우 불고기 3g,nsm1005,39000,19500,50,1161,1161,4011,4.8,0,0,https://example.com/nsmall_chuksan/1005
+6,이베리코 목살 5g,nsm1006,120000,96000,20,1100,1100,4451,4.3,0,0,https://example.com/nsmall_chuksan/1006
+7,토종닭 3호,nsm1007,25000,22500,10,338,338,3365,3.9,0,0,https://example.com/nsmall_chuksan/1007
+8,양념 LA갈비 500g,nsm1008,120000,90000,25,583,583,1246,4.4,0,0,https://example.com/nsmall_chuksan/1008
+9,1++ 한우 불고기 1g,nsm1009,19900,11940,40,219,219,822,4.8,0,0,https://example.com/nsmall_chuksan/1009
+10,이베리코 목살 5g,nsm1010,12900,7740,40,28,28,1180,4.3,0,0,https://example.com/nsmall_chuksan/1010

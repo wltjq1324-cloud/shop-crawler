@@ -1,0 +1,83 @@
+# =============================================================================
+# 일일 쇼핑몰 랭킹 크롤러 — 수집 대상 정의
+# =============================================================================
+# - defaults: 모든 타겟에 공통 적용되는 기본값. target 에서 같은 키를 지정하면
+#   해당 타겟에 한해 덮어쓴다.
+# - schedule(★): 수집 시각(KST, "HH:MM"). 행사 오픈/마감 시각이 플랫폼마다
+#   달라서 타겟별로 개별 조정할 수 있도록 설계했다.
+#     * defaults.schedule 가 전역 기본값(09:00).
+#     * target 에 schedule 을 지정하면 그 시각이 우선한다.
+#   GitHub Actions 워크플로는 여기 등장하는 모든 distinct 한 시각마다 cron 으로
+#   기동되고, 크롤러는 "지금 기동된 시각에 수집해야 하는 타겟"만 골라서 실행한다.
+#   (scripts/gen_cron.py 로 cron 목록을 재생성할 수 있다.)
+# =============================================================================
+
+defaults:
+  timezone: "Asia/Seoul"
+  schedule: "09:00"          # ★ 전역 기본 수집 시각 (KST)
+  top_n: 30
+  # 기동 시각과 타겟 schedule 의 허용 오차(분). Actions cron 이 몇 분 늦게
+  # 떠도 "due" 로 인정하기 위한 윈도. 0 < (now - scheduled) < window 면 수집.
+  due_window_minutes: 55
+  sales_qty_source: null     # 기본은 sales_qty 미수집(NULL)
+
+targets:
+  # ---------------------------------------------------------------------------
+  # G마켓 베스트 (지마켓): sales_qty 미수집(NULL)
+  # ---------------------------------------------------------------------------
+  - key: gmarket_fresh
+    label: "G마켓 신선식품 베스트"
+    parser: gmarket
+    url: "https://www.gmarket.co.kr/n/best?groupCode=100000006"
+    top_n: 30
+
+  - key: gmarket_processed
+    label: "G마켓 가공식품 베스트"
+    parser: gmarket
+    url: "https://www.gmarket.co.kr/n/best?groupCode=100000005"
+    top_n: 30
+
+  # ---------------------------------------------------------------------------
+  # GS샵 NOW 베스트: sales_qty 미수집(NULL)
+  # ---------------------------------------------------------------------------
+  - key: gsshop_best
+    label: "GS샵 NOW 베스트"
+    parser: gsshop
+    url: "https://www.gsshop.com/shop/spa/nowBest.gs?lseq=415303-1&gsid=ECmain-AU415303-AU415303-1"
+    top_n: 30
+
+  # ---------------------------------------------------------------------------
+  # 카카오 톡딜 (식품): sales_qty = 주문수
+  #   행사가 오전 10시에 오픈하는 경우가 많아 schedule 을 개별 조정한 예시.
+  # ---------------------------------------------------------------------------
+  - key: kakao_talkdeal_food
+    label: "카카오 톡딜 식품"
+    parser: kakao_talkdeal
+    url: "https://store.kakao.com/home/talkdeal/category/3"
+    top_n: 30
+    schedule: "10:00"        # ★ 개별 조정: 톡딜 오픈 시각
+    sales_qty_source: "order_count"   # 주문수
+
+  # ---------------------------------------------------------------------------
+  # NS홈쇼핑 카테고리: sales_qty = 구매수
+  # ---------------------------------------------------------------------------
+  - key: nsmall_nongsan
+    label: "NS몰 농산"
+    parser: nsmall
+    url: "https://m.nsmall.com/store/category/1583619"
+    top_n: 10
+    sales_qty_source: "purchase_count"   # 구매수
+
+  - key: nsmall_susan
+    label: "NS몰 수산"
+    parser: nsmall
+    url: "https://m.nsmall.com/store/category/1583620"
+    top_n: 10
+    sales_qty_source: "purchase_count"
+
+  - key: nsmall_chuksan
+    label: "NS몰 축산"
+    parser: nsmall
+    url: "https://m.nsmall.com/store/category/1583621"
+    top_n: 10
+    sales_qty_source: "purchase_count"

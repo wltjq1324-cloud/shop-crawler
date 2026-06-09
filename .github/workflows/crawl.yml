@@ -1,0 +1,121 @@
+name: daily-shop-crawl
+
+# =============================================================================
+# ★ 사이트별 수집 시각 처리
+#   - cron 은 UTC 기준이라 KST 에서 9시간을 뺀 값으로 등록한다.
+#   - targets.yaml 의 distinct schedule 마다 cron 을 하나씩 둔다.
+#       09:00 KST -> 00:00 UTC
+#       10:00 KST -> 01:00 UTC  (kakao_talkdeal_food 개별 조정 예시)
+#   - 각 기동에서 크롤러가 "지금 due 인 타겟"만 실행한다.
+#   - schedule 추가/변경 시: `python scripts/gen_cron.py` 로 cron 재생성.
+# =============================================================================
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # 09:00 KST
+    - cron: '0 1 * * *'   # 10:00 KST
+  workflow_dispatch:
+    inputs:
+      keys:
+        description: '특정 타겟만 실행(콤마구분 key). 비우면 due 판정.'
+        required: false
+        default: ''
+      all:
+        description: 'schedule 무시하고 전체 실행'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: shop-crawl
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run crawler
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.all }}" = "true" ]; then ARGS="--all"; fi
+          if [ -n "${{ github.event.inputs.keys }}" ]; then ARGS="--keys ${{ github.event.inputs.keys }}"; fi
+          python -m crawler.main $ARGS
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crawl-results-${{ github.run_id }}
+          path: |
+            data/shop.db
+            exports/
+            screenshots/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Commit results
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          git add data/shop.db exports/ screenshots/ || true
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "data: crawl results $(date -u +'%Y-%m-%d %H:%MZ')"
+            git push
+          fi
+
+      # ------ 크롤 결과로 대시보드 사이트 빌드 (Pages 아티팩트) ------
+      - name: Build dashboard site
+        if: always()
+        run: |
+          mkdir -p _site
+          python dashboard/build_dashboard.py --out _site/index.html
+
+      - name: Upload Pages artifact
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  # GitHub Pages 배포: 크롤 직후 최신 데이터로 대시보드 갱신
+  deploy:
+    needs: crawl
+    if: always() && needs.crawl.result != 'cancelled'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
