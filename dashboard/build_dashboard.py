@@ -68,7 +68,7 @@ def ranks_for(conn: sqlite3.Connection, run_id: int) -> list[sqlite3.Row]:
 def card_html(r: sqlite3.Row, qty_label: str, cat: str | None) -> str:
     name = r["product_name"] or "(이름 없음)"
     img = (
-        f'<img src="{esc(r["image_url"])}" alt="{esc(name)}" loading="lazy">'
+        f'<img src="{esc(r["image_url"])}" alt="{esc(name)}" loading="lazy" referrerpolicy="no-referrer">'
         if r["image_url"] else '<div class="noimg">🛒</div>'
     )
     rk = f'<span class="rk">{esc(r["rank"])}</span>'

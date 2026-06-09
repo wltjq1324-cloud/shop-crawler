@@ -32,6 +32,8 @@ concurrency:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   crawl:
@@ -77,6 +79,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
           git add data/shop.db exports/ screenshots/ || true
           if git diff --cached --quiet; then
             echo "변경 없음 — 커밋 생략"
@@ -84,3 +87,35 @@ jobs:
             git commit -m "data: crawl results $(date -u +'%Y-%m-%d %H:%MZ')"
             git push
           fi
+
+      # ------ 크롤 결과로 대시보드 사이트 빌드 (Pages 아티팩트) ------
+      - name: Build dashboard site
+        if: always()
+        run: |
+          mkdir -p _site
+          python dashboard/build_dashboard.py --out _site/index.html
+
+      - name: Upload Pages artifact
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  # GitHub Pages 배포: 크롤 직후 최신 데이터로 대시보드 갱신
+  deploy:
+    needs: crawl
+    if: always() && needs.crawl.result != 'cancelled'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

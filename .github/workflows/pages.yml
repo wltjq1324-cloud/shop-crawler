@@ -1,0 +1,62 @@
+name: deploy-pages
+
+# 대시보드만 다시 빌드해 GitHub Pages 로 배포한다.
+# - main 에 대시보드/데이터 변경이 푸시되면 자동 배포
+# - Actions 탭에서 수동 실행(workflow_dispatch)도 가능
+# 크롤링 워크플로(crawl.yml)도 매 크롤 후 자체적으로 배포하므로,
+# 이 워크플로는 코드/데이터 수동 변경 시의 보조 배포 경로다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dashboard/**'
+      - 'data/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # build_dashboard.py 는 표준 라이브러리만 사용 — 의존성 설치 불필요
+      - name: Build dashboard site
+        run: |
+          mkdir -p _site
+          python dashboard/build_dashboard.py --out _site/index.html
+
+      - name: Setup Pages (자동 활성화 포함)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

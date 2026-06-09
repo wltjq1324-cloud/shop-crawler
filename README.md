@@ -81,6 +81,12 @@ python -m crawler.main --all --now "2026-06-09T10:30:00"  # 기준시각 지정(
 
 ## 대시보드
 
+**서비스 URL: https://wltjq1324-cloud.github.io/shop-crawler/**
+
+매 크롤링 직후(crawl.yml) 최신 데이터로 대시보드가 GitHub Pages 에 자동
+배포된다. 대시보드/데이터를 수동으로 변경해 main 에 푸시하면 pages.yml 이
+보조 경로로 재배포한다.
+
 수집된 SQLite(`crawl_runs` + `product_ranks`)를 기반으로 정적 HTML 대시보드를
 생성한다. 외부 CDN/JS 없이 인라인 CSS+SVG 로 그려 오프라인에서도 그대로 열린다.
 
