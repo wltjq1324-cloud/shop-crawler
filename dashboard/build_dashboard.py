@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""data/shop.db 의 최신 수집 결과로 정적 대시보드(HTML)를 생성한다.
+"""data/shop.db 의 최신 수집 결과로 쇼핑몰 스타일 대시보드(HTML)를 생성한다.
 
-외부 CDN/JS 없이 인라인 CSS + SVG 막대만 사용하므로 오프라인에서도 그대로 렌더된다.
-사용: python dashboard/build_dashboard.py [--db ...] [--out dashboard/index.html] [--date YYYY-MM-DD]
+- 플랫폼 채널별 탭: G마켓 신선 / G마켓 가공 / GS샵 / 카카오 톡딜 / NS몰
+  (NS몰 탭은 농산 1~10 → 수산 1~10 → 축산 1~10 순서로 한 탭에 묶음)
+- 상품 카드 그리드: 썸네일 + 상품명 + 정가(취소선) + 할인율% + 판매가
+  데스크톱 한 행 5개 × 6줄(30개), 화면 폭에 따라 4/3/2열 반응형(모바일 대응)
+- 탭은 CSS 라디오 방식이라 JS 없이도 동작. 외부 CDN 불필요(완전 자급자족 HTML).
+
+사용: python dashboard/build_dashboard.py [--db ...] [--out ...] [--date YYYY-MM-DD]
 """
 
 from __future__ import annotations
@@ -14,39 +19,44 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# 탭 구성: NS몰은 농산→수산→축산 순서로 한 탭에 통합
+TABS = [
+    {"id": "gmf", "label": "G마켓 신선", "targets": ["gmarket_fresh"]},
+    {"id": "gmp", "label": "G마켓 가공", "targets": ["gmarket_processed"]},
+    {"id": "gss", "label": "GS샵", "targets": ["gsshop_best"]},
+    {"id": "ktd", "label": "카카오 톡딜", "targets": ["kakao_talkdeal_food"]},
+    {"id": "nsm", "label": "NS몰",
+     "targets": ["nsmall_nongsan", "nsmall_susan", "nsmall_chuksan"],
+     "cats": {"nsmall_nongsan": "농산", "nsmall_susan": "수산", "nsmall_chuksan": "축산"}},
+]
+
+QTY_LABEL = {"kakao_talkdeal_food": "주문"}  # 그 외 sales_qty 보유 타겟은 '구매'
+
 
 def esc(v: object) -> str:
-    return html.escape("" if v is None else str(v))
+    return html.escape("" if v is None else str(v), quote=True)
 
 
 def won(v: object) -> str:
-    return f"{int(v):,}원" if v not in (None, "") else "-"
-
-
-def num(v: object) -> str:
-    return f"{int(v):,}" if v not in (None, "") else "-"
+    return f"{int(v):,}원" if v not in (None, "") else ""
 
 
 def latest_date(conn: sqlite3.Connection, override: str | None) -> str | None:
     if override:
         return override
-    row = conn.execute("SELECT MAX(run_date) d FROM crawl_runs").fetchone()
-    return row["d"] if row else None
+    row = conn.execute("SELECT MAX(run_date) FROM crawl_runs").fetchone()
+    return row[0] if row else None
 
 
-def latest_runs(conn: sqlite3.Connection, run_date: str) -> list[sqlite3.Row]:
-    # 타겟별 그 날짜의 가장 최근 run
+def latest_run(conn: sqlite3.Connection, target_key: str, run_date: str) -> sqlite3.Row | None:
     return conn.execute(
         """
-        SELECT r.* FROM crawl_runs r
-        JOIN (SELECT target_key, MAX(run_at) m FROM crawl_runs
-              WHERE run_date=? GROUP BY target_key) x
-          ON r.target_key=x.target_key AND r.run_at=x.m
-        WHERE r.run_date=?
-        ORDER BY r.run_at, r.target_key
+        SELECT * FROM crawl_runs
+        WHERE target_key=? AND run_date=?
+        ORDER BY run_at DESC LIMIT 1
         """,
-        (run_date, run_date),
-    ).fetchall()
+        (target_key, run_date),
+    ).fetchone()
 
 
 def ranks_for(conn: sqlite3.Connection, run_id: int) -> list[sqlite3.Row]:
@@ -55,148 +65,93 @@ def ranks_for(conn: sqlite3.Connection, run_id: int) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-# ---------------------------------------------------------------------------
-# HTML 조각
-# ---------------------------------------------------------------------------
-def kpi_card(label: str, value: str, sub: str = "") -> str:
-    sub_h = f'<div class="kpi-sub">{esc(sub)}</div>' if sub else ""
-    return f'<div class="kpi"><div class="kpi-val">{esc(value)}</div><div class="kpi-label">{esc(label)}</div>{sub_h}</div>'
-
-
-def bar(value: float, vmax: float, color: str) -> str:
-    pct = 0 if vmax <= 0 else max(2, round(value / vmax * 100))
-    return f'<div class="bar"><span style="width:{pct}%;background:{color}"></span></div>'
-
-
-def badge(text: str, cls: str) -> str:
-    return f'<span class="badge {cls}">{esc(text)}</span>'
-
-
-def status_badge(status: str) -> str:
-    m = {"success": ("성공", "ok"), "partial": ("부분", "warn"), "error": ("실패", "err"),
-         "running": ("진행", "warn")}
-    txt, cls = m.get(status, (status, "warn"))
-    return badge(txt, cls)
-
-
-def target_section(run: sqlite3.Row, rows: list[sqlite3.Row], has_qty: bool) -> str:
-    head = (
-        f'<div class="t-head">'
-        f'<div><span class="t-title">{esc(run["label"] or run["target_key"])}</span>'
-        f'<span class="t-key">{esc(run["target_key"])}</span></div>'
-        f'<div class="t-meta">{status_badge(run["status"])}'
-        f'<span class="chip">⏰ {esc(run["schedule"])}</span>'
-        f'<span class="chip">TOP {esc(run["top_n"])}</span>'
-        f'<span class="chip">{esc(run["item_count"])}건</span></div>'
-        f'</div>'
+def card_html(r: sqlite3.Row, qty_label: str, cat: str | None) -> str:
+    name = r["product_name"] or "(이름 없음)"
+    img = (
+        f'<img src="{esc(r["image_url"])}" alt="{esc(name)}" loading="lazy">'
+        if r["image_url"] else '<div class="noimg">🛒</div>'
     )
+    rk = f'<span class="rk">{esc(r["rank"])}</span>'
+    ad = '<span class="bdg-ad">AD</span>' if r["is_ad"] else ""
+    so = '<div class="so"><span>품절</span></div>' if r["is_sold_out"] else ""
+    cat_h = f'<span class="cat">{esc(cat)}</span>' if cat else ""
 
-    # 막대 기준값
-    qty_max = max((r["sales_qty"] or 0) for r in rows) if rows else 0
-    dc_max = max((r["discount_rate"] or 0) for r in rows) if rows else 0
+    has_dc = bool(r["list_price"] and r["sale_price"] and r["list_price"] > r["sale_price"])
+    orig = f'<p class="orig"><s>나의 할인가 {won(r["list_price"])}</s></p>' if has_dc else '<p class="orig">&nbsp;</p>'
+    dc = f'<b class="dc">{esc(r["discount_rate"])}%</b>' if (has_dc and r["discount_rate"]) else ""
+    price = f'<p class="prc">{dc}<b class="val">{won(r["sale_price"]) or "-"}</b></p>'
 
-    body = ['<table class="t-table"><thead><tr>'
-            '<th>#</th><th>상품명</th><th>판매가</th><th>할인</th>']
-    body.append('<th>판매량</th>' if has_qty else '<th>리뷰</th>')
-    body.append('<th>평점</th><th></th></tr></thead><tbody>')
+    meta_bits = []
+    if r["rating"]:
+        meta_bits.append(f'★ {esc(r["rating"])}')
+    if r["review_count"]:
+        meta_bits.append(f'리뷰 {int(r["review_count"]):,}')
+    if r["sales_qty"]:
+        meta_bits.append(f'{qty_label} {int(r["sales_qty"]):,}')
+    meta = f'<p class="meta">{" · ".join(meta_bits)}</p>' if meta_bits else '<p class="meta">&nbsp;</p>'
 
-    for r in rows[:10]:
-        flags = ""
-        if r["is_ad"]:
-            flags += badge("AD", "ad")
-        if r["is_sold_out"]:
-            flags += badge("품절", "soldout")
-
-        price_cell = won(r["sale_price"])
-        if r["list_price"] and r["sale_price"] and r["list_price"] != r["sale_price"]:
-            price_cell = f'<span class="strike">{won(r["list_price"])}</span> {won(r["sale_price"])}'
-
-        if r["discount_rate"]:
-            dc_cell = f'<span class="dc">{esc(r["discount_rate"])}%</span>{bar(r["discount_rate"], dc_max, "#f4733b")}'
-        else:
-            dc_cell = "-"
-
-        if has_qty:
-            q = r["sales_qty"]
-            metric = f'{num(q)}{bar(q or 0, qty_max, "#3b82f6")}' if q is not None else "-"
-        else:
-            metric = num(r["review_count"])
-
-        body.append(
-            f'<tr><td class="rank">{esc(r["rank"])}</td>'
-            f'<td class="name">{esc(r["product_name"])}</td>'
-            f'<td>{price_cell}</td><td>{dc_cell}</td>'
-            f'<td>{metric}</td>'
-            f'<td>{("★ " + esc(r["rating"])) if r["rating"] else "-"}</td>'
-            f'<td class="flags">{flags}</td></tr>'
-        )
-    body.append("</tbody></table>")
-    return f'<section class="t-card">{head}{"".join(body)}</section>'
+    href = esc(r["product_url"] or "#")
+    return (
+        f'<a class="card" href="{href}" target="_blank" rel="noopener">'
+        f'<div class="thumb">{rk}{img}{ad}{so}</div>'
+        f'<div class="info">{cat_h}<p class="nm">{esc(name)}</p>{orig}{price}{meta}</div>'
+        f'</a>'
+    )
 
 
 def build(db_path: Path, out_path: Path, date_override: str | None) -> Path:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-
     run_date = latest_date(conn, date_override)
-    runs = latest_runs(conn, run_date) if run_date else []
 
-    # KPI 집계
-    total_items = 0
-    discounts: list[int] = []
-    ratings: list[float] = []
-    sold_out = 0
-    ok = 0
-    sections: list[str] = []
-    chart_rows: list[tuple[str, float, int]] = []  # (label, avg_dc, total_qty)
+    inputs, labels, panels = [], [], []
+    for i, tab in enumerate(TABS):
+        checked = " checked" if i == 0 else ""
+        inputs.append(f'<input type="radio" name="tab" id="t-{tab["id"]}"{checked}>')
+        labels.append(f'<label for="t-{tab["id"]}">{esc(tab["label"])}</label>')
 
-    for run in runs:
-        rows = ranks_for(conn, run["id"])
-        total_items += len(rows)
-        if run["status"] == "success":
-            ok += 1
-        has_qty = any(r["sales_qty"] is not None for r in rows)
-        d = [r["discount_rate"] for r in rows if r["discount_rate"]]
-        discounts += d
-        ratings += [r["rating"] for r in rows if r["rating"]]
-        sold_out += sum(1 for r in rows if r["is_sold_out"])
-        avg_dc = round(sum(d) / len(d), 1) if d else 0
-        total_qty = sum((r["sales_qty"] or 0) for r in rows)
-        chart_rows.append((run["label"] or run["target_key"], avg_dc, total_qty))
-        sections.append(target_section(run, rows, has_qty))
+        cards, meta_chips, total = [], [], 0
+        for tk in tab["targets"]:
+            run = latest_run(conn, tk, run_date) if run_date else None
+            if not run:
+                continue
+            cat = (tab.get("cats") or {}).get(tk)
+            qty_label = QTY_LABEL.get(tk, "구매")
+            rows = ranks_for(conn, run["id"])
+            total += len(rows)
+            meta_chips.append(f'<span class="chip">⏰ {esc(run["schedule"])} 수집</span>')
+            for r in rows:
+                cards.append(card_html(r, qty_label, cat))
+        # 탭당 수집시각 chip 은 중복 제거
+        chips = "".join(dict.fromkeys(meta_chips))
+        body = (
+            f'<div class="grid">{"".join(cards)}</div>'
+            if cards else '<div class="empty">이 채널의 수집 데이터가 없습니다.</div>'
+        )
+        panels.append(
+            f'<section class="panel" id="p-{tab["id"]}">'
+            f'<div class="phead"><h2>{esc(tab["label"])} <em>TOP {total}</em></h2><div>{chips}</div></div>'
+            f'{body}</section>'
+        )
 
     conn.close()
 
-    avg_dc_all = round(sum(discounts) / len(discounts), 1) if discounts else 0
-    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0
-    so_rate = round(sold_out / total_items * 100, 1) if total_items else 0
+    # 탭 표시/활성 CSS 는 id 조합으로 생성
+    css_rules = []
+    for tab in TABS:
+        css_rules.append(f'#t-{tab["id"]}:checked ~ #p-{tab["id"]}{{display:block}}')
+        css_rules.append(
+            f'#t-{tab["id"]}:checked ~ .tabbar label[for="t-{tab["id"]}"]'
+            "{background:#111;color:#fff;border-color:#111}"
+        )
 
-    kpis = "".join([
-        kpi_card("수집 타겟", f"{len(runs)}", f"성공 {ok}/{len(runs)}"),
-        kpi_card("수집 상품", f"{total_items:,}", "전체 순위 행"),
-        kpi_card("평균 할인율", f"{avg_dc_all}%", f"{len(discounts)}개 상품"),
-        kpi_card("평균 평점", f"★ {avg_rating}", f"{len(ratings)}개 상품"),
-        kpi_card("품절 상품", f"{sold_out}", f"{so_rate}%"),
-    ])
-
-    # 차트: 타겟별 평균 할인율 + 판매량 합계
-    dc_vmax = max((c[1] for c in chart_rows), default=0)
-    qty_vmax = max((c[2] for c in chart_rows), default=0)
-    chart_dc = "".join(
-        f'<div class="crow"><div class="clabel">{esc(l)}</div>{bar(dc, dc_vmax, "#f4733b")}<div class="cval">{dc}%</div></div>'
-        for l, dc, _ in chart_rows
-    )
-    chart_qty = "".join(
-        f'<div class="crow"><div class="clabel">{esc(l)}</div>{bar(q, qty_vmax, "#3b82f6")}<div class="cval">{num(q)}</div></div>'
-        for l, _, q in chart_rows if q
-    ) or '<div class="empty">판매량 수집 타겟 없음 (톡딜·NS만 수집)</div>'
-
-    title_date = run_date or "데이터 없음"
-    body_html = "".join(sections) or '<div class="empty">표시할 데이터가 없습니다. scripts/seed_sample.py 또는 크롤러를 먼저 실행하세요.</div>'
-
-    doc = HTML_TEMPLATE.format(
-        date=esc(title_date), kpis=kpis,
-        chart_dc=chart_dc, chart_qty=chart_qty, sections=body_html,
+    doc = (
+        HTML_TEMPLATE
+        .replace("__DATE__", esc(run_date or "데이터 없음"))
+        .replace("__TAB_CSS__", "\n".join(css_rules))
+        .replace("__INPUTS__", "".join(inputs))
+        .replace("__LABELS__", "".join(labels))
+        .replace("__PANELS__", "".join(panels))
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(doc, encoding="utf-8")
@@ -206,67 +161,66 @@ def build(db_path: Path, out_path: Path, date_override: str | None) -> Path:
 HTML_TEMPLATE = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>쇼핑몰 랭킹 대시보드</title>
+<title>쇼핑몰 베스트 랭킹</title>
 <style>
-:root{{--bg:#0f1117;--card:#181b24;--card2:#1f2330;--line:#2a2f3d;--text:#e6e8ee;--muted:#9aa3b2;--accent:#6ee7b7}}
-*{{box-sizing:border-box}}
-body{{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}}
-.wrap{{max-width:1280px;margin:0 auto;padding:28px 24px 60px}}
-header.top{{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}}
-h1{{font-size:24px;margin:0;letter-spacing:-.3px}}
-h1 .dot{{color:var(--accent)}}
-.sub{{color:var(--muted);font-size:14px}}
-.kpis{{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px}}
-.kpi{{background:linear-gradient(160deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:14px;padding:16px 18px}}
-.kpi-val{{font-size:26px;font-weight:700;letter-spacing:-.5px}}
-.kpi-label{{color:var(--muted);font-size:13px;margin-top:4px}}
-.kpi-sub{{color:#6b7280;font-size:12px;margin-top:2px}}
-.charts{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px}}
-.panel{{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}}
-.panel h3{{margin:0 0 12px;font-size:14px;color:var(--muted);font-weight:600}}
-.crow{{display:grid;grid-template-columns:120px 1fr 64px;align-items:center;gap:10px;margin:7px 0;font-size:13px}}
-.clabel{{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.cval{{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}}
-.bar{{background:#10131b;border-radius:6px;height:10px;overflow:hidden}}
-.bar span{{display:block;height:100%;border-radius:6px}}
-.grid{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
-.t-card{{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;overflow:hidden}}
-.t-head{{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px;flex-wrap:wrap}}
-.t-title{{font-size:15px;font-weight:700}}
-.t-key{{color:var(--muted);font-size:12px;margin-left:8px}}
-.t-meta{{display:flex;gap:6px;align-items:center;flex-wrap:wrap}}
-.chip{{background:#10131b;border:1px solid var(--line);color:var(--muted);font-size:11px;padding:2px 8px;border-radius:20px}}
-.badge{{font-size:11px;padding:2px 7px;border-radius:6px;font-weight:600}}
-.badge.ok{{background:#10331f;color:#6ee7b7}}
-.badge.warn{{background:#3a2f10;color:#f4c430}}
-.badge.err{{background:#3a1414;color:#f87171}}
-.badge.ad{{background:#1e293b;color:#93c5fd;margin-left:3px}}
-.badge.soldout{{background:#2a2a2a;color:#9aa3b2;margin-left:3px}}
-table.t-table{{width:100%;border-collapse:collapse;font-size:12.5px}}
-.t-table th{{text-align:left;color:var(--muted);font-weight:600;font-size:11px;padding:6px 6px;border-bottom:1px solid var(--line)}}
-.t-table td{{padding:6px 6px;border-bottom:1px solid #20242f;vertical-align:middle}}
-.t-table tr:last-child td{{border-bottom:none}}
-td.rank{{color:var(--accent);font-weight:700;width:22px}}
-td.name{{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-.strike{{color:#6b7280;text-decoration:line-through;font-size:11px;margin-right:3px}}
-.dc{{color:#f4733b;font-weight:700;margin-right:6px}}
-.t-table .bar{{display:inline-block;width:54px;vertical-align:middle;margin-left:6px}}
-td.flags{{text-align:right;white-space:nowrap}}
-.empty{{color:var(--muted);padding:40px;text-align:center;border:1px dashed var(--line);border-radius:14px}}
-.foot{{color:#5b6473;font-size:12px;margin-top:26px;text-align:center}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#fff;color:#111;
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+.wrap{max-width:1200px;margin:0 auto;padding:20px 16px 60px}
+header h1{font-size:22px;margin:0 0 2px;letter-spacing:-.3px}
+header .sub{color:#888;font-size:13px;margin-bottom:14px}
+input[name=tab]{position:absolute;opacity:0;pointer-events:none}
+.tabbar{display:flex;gap:8px;overflow-x:auto;padding:4px 0 14px;position:sticky;top:0;
+  background:#fff;z-index:10;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.tabbar::-webkit-scrollbar{display:none}
+.tabbar label{flex:0 0 auto;padding:8px 16px;border:1px solid #ddd;border-radius:22px;
+  font-size:14px;font-weight:600;color:#333;cursor:pointer;white-space:nowrap;background:#fff}
+.panel{display:none}
+__TAB_CSS__
+.phead{display:flex;justify-content:space-between;align-items:center;gap:8px;
+  margin:6px 0 14px;flex-wrap:wrap}
+.phead h2{font-size:17px;margin:0}
+.phead em{font-style:normal;color:#e8453c;font-size:14px}
+.chip{font-size:12px;color:#777;background:#f5f5f5;border-radius:14px;padding:4px 10px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:22px 14px}
+@media(max-width:1024px){.grid{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:820px){.grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:560px){.grid{grid-template-columns:repeat(2,1fr);gap:18px 10px}}
+.card{display:block;text-decoration:none;color:inherit}
+.thumb{position:relative;aspect-ratio:1/1;border-radius:10px;overflow:hidden;
+  background:#f6f6f6;border:1px solid #eee}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.noimg{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:44px}
+.rk{position:absolute;top:0;left:0;background:rgba(17,17,17,.85);color:#fff;font-size:12px;
+  font-weight:700;min-width:24px;height:24px;display:flex;align-items:center;justify-content:center;
+  border-radius:0 0 8px 0;z-index:2;padding:0 6px}
+.bdg-ad{position:absolute;bottom:6px;left:6px;background:rgba(255,255,255,.92);border:1px solid #ccc;
+  color:#666;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;z-index:2}
+.so{position:absolute;inset:0;background:rgba(255,255,255,.65);display:flex;align-items:center;
+  justify-content:center;z-index:3}
+.so span{background:rgba(17,17,17,.8);color:#fff;font-size:13px;font-weight:700;
+  padding:6px 14px;border-radius:18px}
+.info{padding:8px 2px 0}
+.cat{display:inline-block;font-size:11px;font-weight:700;color:#0a7;background:#e9faf3;
+  border-radius:4px;padding:1px 6px;margin-bottom:3px}
+.nm{margin:0;font-size:13px;line-height:1.4;color:#222;height:2.8em;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.orig{margin:4px 0 0;font-size:11px;color:#aaa;min-height:13px}
+.orig s{color:#aaa}
+.prc{margin:2px 0 0;display:flex;align-items:baseline;gap:5px}
+.dc{color:#e8453c;font-size:15px;font-weight:800}
+.val{font-size:15px;font-weight:800;color:#111}
+.meta{margin:4px 0 0;font-size:11px;color:#999;min-height:13px}
+.empty{color:#999;padding:48px 0;text-align:center;border:1px dashed #ddd;border-radius:12px}
+footer{color:#bbb;font-size:11px;text-align:center;margin-top:40px}
 </style></head>
 <body><div class="wrap">
-<header class="top">
-  <div><h1>🛒 쇼핑몰 랭킹 대시보드<span class="dot">.</span></h1>
-       <div class="sub">수집일자 <b>{date}</b> · 타겟별 최신 수집 결과</div></div>
-</header>
-<div class="kpis">{kpis}</div>
-<div class="charts">
-  <div class="panel"><h3>타겟별 평균 할인율</h3>{chart_dc}</div>
-  <div class="panel"><h3>타겟별 판매량 합계 (톡딜 주문수 · NS 구매수)</h3>{chart_qty}</div>
-</div>
-<div class="grid">{sections}</div>
-<div class="foot">shop-crawler · crawl_runs / product_ranks 기반 · 정적 생성 대시보드</div>
+<header><h1>🛒 쇼핑몰 베스트 랭킹</h1>
+<div class="sub">수집일자 __DATE__ · 채널 탭을 눌러 전환</div></header>
+__INPUTS__
+<nav class="tabbar">__LABELS__</nav>
+__PANELS__
+<footer>shop-crawler · crawl_runs / product_ranks 기반 정적 생성</footer>
 </div></body></html>"""
 
 

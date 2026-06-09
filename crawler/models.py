@@ -22,6 +22,7 @@ class ProductRank:
     is_sold_out: bool | None = None      # 품절 여부
     is_ad: bool | None = None            # 광고 여부
     product_url: str | None = None
+    image_url: str | None = None         # 썸네일 이미지
 
     @classmethod
     def csv_header(cls) -> list[str]:

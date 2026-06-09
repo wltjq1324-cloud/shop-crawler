@@ -76,6 +76,16 @@ _JS = r"""
       const a = card.querySelector(sel);
       if (a && a.getAttribute("href")) { href = a.getAttribute("href"); break; }
     }
+    let img = null;
+    const imgSels = config.imgSelectors || ["img"];
+    for (const sel of imgSels) {
+      const el = card.querySelector(sel);
+      if (el) {
+        img = el.getAttribute("src") || el.getAttribute("data-src")
+           || el.getAttribute("data-original") || null;
+        if (img) break;
+      }
+    }
     out.push({
       name: textOf(card, f.name),
       listPrice: textOf(card, f.listPrice),
@@ -86,6 +96,7 @@ _JS = r"""
       reviewCount: textOf(card, f.reviewCount),
       rating: textOf(card, f.rating),
       href: href,
+      img: img,
       isSoldOut: hasMatch(card, config.soldOut),
       isAd: hasMatch(card, config.ad),
     });

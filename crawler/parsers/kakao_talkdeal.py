@@ -60,6 +60,7 @@ class KakaoTalkdealParser(BaseParser):
                     is_sold_out=bool(c.get("isSoldOut")),
                     is_ad=bool(c.get("isAd")),
                     product_url=self.absolutize(c.get("href")),
+                    image_url=self.absolutize(c.get("img")),
                 )
             )
         return rows

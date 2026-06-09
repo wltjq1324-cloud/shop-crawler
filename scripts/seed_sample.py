@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import random
 import sys
+import urllib.parse
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -37,6 +38,34 @@ NAMES = {
     "nsmall_susan": ["완도 전복 {n}미", "제주 갈치 {n}손", "통영 굴 {n}kg", "노르웨이 고등어 {n}손"],
     "nsmall_chuksan": ["1++ 한우 불고기 {n}g", "이베리코 목살 {n}g", "토종닭 {n}호", "양념 LA갈비 {n}g"],
 }
+
+
+# 상품명 키워드 → 썸네일 이모지
+EMOJI = [("사과", "🍎"), ("감귤", "🍊"), ("참외", "🍈"), ("머스캣", "🍇"), ("바나나", "🍌"),
+         ("양파", "🧅"), ("토마토", "🍅"), ("블루베리", "🫐"), ("라면", "🍜"), ("햇반", "🍚"),
+         ("스팸", "🥫"), ("만두", "🥟"), ("콜라", "🥤"), ("밀가루", "🌾"), ("참치", "🐟"),
+         ("한우", "🥩"), ("랍스터", "🦞"), ("전복", "🐚"), ("킹크랩", "🦀"), ("갈치", "🐟"),
+         ("굴비", "🐟"), ("황태", "🐟"), ("떡갈비", "🍖"), ("닭가슴살", "🍗"), ("젤리", "🍬"),
+         ("아메리카노", "☕"), ("견과", "🥜"), ("단백질바", "🍫"), ("누룽지", "🍘"), ("곤드레", "🍚"),
+         ("떡볶이", "🍢"), ("고구마", "🍠"), ("쌀", "🌾"), ("버섯", "🍄"), ("밤", "🌰"),
+         ("고등어", "🐟"), ("목살", "🥓"), ("토종닭", "🐔"), ("갈비", "🍖"), ("굴", "🦪")]
+PALETTES = [("#fde8e8", "#f8b4b4"), ("#e8f3fd", "#a9d0f5"), ("#eafde8", "#b4e8ae"),
+            ("#fdf6e8", "#f5d9a9"), ("#f3e8fd", "#d4b4f8"), ("#e8fdf8", "#a9f5dd")]
+
+
+def thumb_uri(name: str, rank: int) -> str:
+    """상품명 기반 placeholder 썸네일(SVG data URI). 오프라인에서도 렌더된다."""
+    emoji = next((e for kw, e in EMOJI if kw in name), "🛒")
+    c1, c2 = PALETTES[rank % len(PALETTES)]
+    svg = (
+        f"<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'>"
+        f"<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>"
+        f"<stop offset='0' stop-color='{c1}'/><stop offset='1' stop-color='{c2}'/>"
+        f"</linearGradient></defs>"
+        f"<rect width='300' height='300' fill='url(#g)'/>"
+        f"<text x='150' y='160' font-size='110' text-anchor='middle'>{emoji}</text></svg>"
+    )
+    return "data:image/svg+xml;utf8," + urllib.parse.quote(svg)
 
 
 def gen_rows(key: str, top_n: int, sales_qty_source: str | None) -> list[ProductRank]:
@@ -68,6 +97,7 @@ def gen_rows(key: str, top_n: int, sales_qty_source: str | None) -> list[Product
                 is_sold_out=sold_out,
                 is_ad=is_ad,
                 product_url=f"https://example.com/{key}/{1000 + rank}",
+                image_url=thumb_uri(base, rank),
             )
         )
     return rows

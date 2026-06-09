@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS product_ranks (
     rating        REAL,                -- 평점
     is_sold_out   INTEGER,             -- 품절 여부 (0/1)
     is_ad         INTEGER,             -- 광고 여부 (0/1)
-    product_url   TEXT
+    product_url   TEXT,
+    image_url     TEXT                 -- 썸네일 이미지
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_key_date  ON crawl_runs(target_key, run_date);
@@ -63,6 +64,10 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # 기존 DB 마이그레이션: image_url 컬럼이 없으면 추가
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(product_ranks)")}
+    if "image_url" not in cols:
+        conn.execute("ALTER TABLE product_ranks ADD COLUMN image_url TEXT")
     conn.commit()
 
 
@@ -138,6 +143,7 @@ def insert_ranks(
                 _bool(d["is_sold_out"]),
                 _bool(d["is_ad"]),
                 d["product_url"],
+                d["image_url"],
             )
         )
     conn.executemany(
@@ -145,8 +151,8 @@ def insert_ranks(
         INSERT INTO product_ranks
             (run_id, target_key, run_date, rank, product_name, product_id,
              list_price, sale_price, discount_rate, sales_qty, order_count,
-             review_count, rating, is_sold_out, is_ad, product_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             review_count, rating, is_sold_out, is_ad, product_url, image_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         payload,
     )
