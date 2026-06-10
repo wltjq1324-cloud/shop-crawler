@@ -14,6 +14,14 @@ on:
   schedule:
     - cron: '0 0 * * *'   # 09:00 KST
     - cron: '0 1 * * *'   # 10:00 KST
+  # 즉시 수집 트리거: main 에 .recrawl 또는 크롤러/타겟 변경이 푸시되면
+  # 전체 타겟을 그 자리에서 수집한다(스케줄과 무관, --all).
+  push:
+    branches: [main]
+    paths:
+      - '.recrawl'
+      - 'crawler/**'
+      - 'targets.yaml'
   workflow_dispatch:
     inputs:
       keys:
@@ -56,6 +64,8 @@ jobs:
       - name: Run crawler
         run: |
           ARGS=""
+          # 스케줄 기동: due 판정 / 그 외(push·수동): 전체 수집
+          if [ "${{ github.event_name }}" != "schedule" ]; then ARGS="--all"; fi
           if [ "${{ github.event.inputs.all }}" = "true" ]; then ARGS="--all"; fi
           if [ -n "${{ github.event.inputs.keys }}" ]; then ARGS="--keys ${{ github.event.inputs.keys }}"; fi
           python -m crawler.main $ARGS
