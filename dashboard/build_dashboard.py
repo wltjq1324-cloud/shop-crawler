@@ -49,13 +49,26 @@ def latest_date(conn: sqlite3.Connection, override: str | None) -> str | None:
 
 
 def latest_run(conn: sqlite3.Connection, target_key: str, run_date: str) -> sqlite3.Row | None:
-    return conn.execute(
+    """해당 날짜의 최신 run. 그 날짜에 정상 수집(item_count>0)이 없으면
+    가장 최근의 정상 수집 run 으로 폴백한다(셀렉터 깨짐 등으로 0건일 때
+    빈 화면 대신 마지막 정상 데이터를 보여주기 위함)."""
+    row = conn.execute(
         """
         SELECT * FROM crawl_runs
-        WHERE target_key=? AND run_date=?
+        WHERE target_key=? AND run_date=? AND item_count>0
         ORDER BY run_at DESC LIMIT 1
         """,
         (target_key, run_date),
+    ).fetchone()
+    if row:
+        return row
+    return conn.execute(
+        """
+        SELECT * FROM crawl_runs
+        WHERE target_key=? AND item_count>0
+        ORDER BY run_date DESC, run_at DESC LIMIT 1
+        """,
+        (target_key,),
     ).fetchone()
 
 
@@ -120,6 +133,8 @@ def build(db_path: Path, out_path: Path, date_override: str | None) -> Path:
             rows = ranks_for(conn, run["id"])
             total += len(rows)
             meta_chips.append(f'<span class="chip">⏰ {esc(run["schedule"])} 수집</span>')
+            if run["run_date"] != run_date:
+                meta_chips.append(f'<span class="chip">📅 {esc(run["run_date"])} 데이터</span>')
             for r in rows:
                 cards.append(card_html(r, qty_label, cat))
         # 탭당 수집시각 chip 은 중복 제거
