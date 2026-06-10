@@ -11,3 +11,6 @@ venv/
 
 # 참고: data/shop.db, exports/*.csv, screenshots/** 는 CI 가 결과를 커밋해
 # 히스토리를 누적/열람하도록 의도적으로 추적한다(무시하지 않음).
+
+# 디버그 HTML 덤프(필요 시 임시 생성)
+/debug/
