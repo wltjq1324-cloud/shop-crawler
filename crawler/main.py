@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -63,6 +64,14 @@ def run_target(page, conn, target: Target, now_kst: dt.datetime, paths: dict) ->
         rows = parser.crawl(page, target.url, target.top_n, screenshot_path)
         if not rows:
             status = "partial"
+            # 0건이면 셀렉터 보정용으로 실제 렌더된 HTML 을 덤프(DEBUG_HTML=1 일 때)
+            if os.environ.get("DEBUG_HTML") == "1":
+                try:
+                    dbg = Path(paths.get("debug", "debug")) / run_date / f"{target.key}.html"
+                    dbg.parent.mkdir(parents=True, exist_ok=True)
+                    dbg.write_text(page.content(), encoding="utf-8")
+                except Exception:
+                    pass
     except Exception as e:  # noqa: BLE001
         status = "error"
         error = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
