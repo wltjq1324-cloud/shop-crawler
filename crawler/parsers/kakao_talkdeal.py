@@ -21,8 +21,8 @@ CONFIG = {
         "listPrice": [".txt_regular"],                      # 정가(판매가격)
         "salePrice": [".txt_price", ".txt_sale", ".group_price .emph_price"],  # 톡딜가
         "discount": [".txt_dc", ".num_rate"],               # 보통 미표기 → 가격으로 역산
-        "orderCount": [".ico_order", ".txt_order"],         # 리스트엔 대개 없음
-        "salesQty": [".ico_order", ".txt_order"],
+        "orderCount": [".badge_other.on", ".ico_order"],         # '주문중 2.4만'
+        "salesQty": [".badge_other.on", ".ico_order"],
         "reviewCount": [".txt_review"],
         "rating": [],                                        # 톡딜은 평점 대신 만족률(별도)
     },

@@ -80,13 +80,20 @@ def run_target(page, conn, target: Target, now_kst: dt.datetime, paths: dict) ->
         dbmod.insert_ranks(conn, run_id, target.key, run_date, rows)
         export_csv(rows, csv_path)
 
+    # 경로는 레포 루트 기준 상대경로로 저장(대시보드 링크가 절대경로로 깨지지 않게)
+    def _rel(p: Path) -> str:
+        try:
+            return str(p.relative_to(ROOT))
+        except ValueError:
+            return str(p)
+
     dbmod.finish_run(
         conn,
         run_id,
         status=status,
         item_count=len(rows),
-        screenshot_path=str(screenshot_path) if screenshot_path.exists() else None,
-        csv_path=str(csv_path) if csv_path.exists() else None,
+        screenshot_path=_rel(screenshot_path) if screenshot_path.exists() else None,
+        csv_path=_rel(csv_path) if csv_path.exists() else None,
         error=error,
     )
     return {"key": target.key, "status": status, "count": len(rows), "error": error}

@@ -97,9 +97,13 @@ def build(db_path: Path, out_path: Path) -> Path:
                 rows = ranks_for(conn, run["id"])
                 total += len(rows)
                 if run["screenshot_path"]:
+                    # 러너 절대경로가 저장된 과거 데이터도 'screenshots/...' 부분만 사용
+                    sp = run["screenshot_path"].replace("\\", "/")
+                    i = sp.find("screenshots/")
+                    rel = sp[i:] if i >= 0 else sp.lstrip("/")
                     shots.append({
                         "label": (tab.get("cats") or {}).get(tk, tab["label"]),
-                        "url": f"https://github.com/{REPO_SLUG}/blob/main/{run['screenshot_path']}",
+                        "url": f"https://github.com/{REPO_SLUG}/blob/main/{rel}",
                     })
                 for r in rows:
                     cards.append(card_dict(r, qty_label, cat))
