@@ -9,28 +9,28 @@ from ..utils import clean, compute_discount, to_count, to_float, to_int, to_perc
 from .base import BaseParser
 from .extract_js import evaluate_cards
 
+# 실제 store.kakao.com 톡딜 마크업(2026-06 확인) 기준 셀렉터.
 CONFIG = {
     "cardSelectors": [
-        "a[href*='/product/']",
-        "ul li[class*='item']",
-        "[class*='productCard']",
-        "[class*='ProductItem']",
+        "div.item_product",
+        ".item_product",
+        "app-view-product",
     ],
     "fields": {
-        "name": ["[class*='name']", "[class*='title']", "strong"],
-        "listPrice": ["del", "s", "[class*='origin']", "[class*='regular']"],
-        "salePrice": ["[class*='salePrice']", "[class*='price'] strong", "[class*='discountedPrice']", "em[class*='price']"],
-        "discount": ["[class*='discountRate']", "[class*='rate']", "[class*='percent']"],
-        # 주문수: '주문 1,234' / '1.2만 주문' 등
-        "orderCount": ["[class*='order']", "[class*='purchase']", "[class*='count']", "[class*='qty']"],
-        "salesQty": ["[class*='order']", "[class*='purchase']"],
-        "reviewCount": ["[class*='review']"],
-        "rating": ["[class*='rating']", "[class*='star']", "[class*='score']"],
+        "name": [".name_product", ".tit_store"],
+        "listPrice": [".txt_regular"],                      # 정가(판매가격)
+        "salePrice": [".txt_price", ".txt_sale", ".group_price .emph_price"],  # 톡딜가
+        "discount": [".txt_dc", ".num_rate"],               # 보통 미표기 → 가격으로 역산
+        "orderCount": [".ico_order", ".txt_order"],         # 리스트엔 대개 없음
+        "salesQty": [".ico_order", ".txt_order"],
+        "reviewCount": [".txt_review"],
+        "rating": [],                                        # 톡딜은 평점 대신 만족률(별도)
     },
-    "linkSelectors": ["a[href*='/product/']", "a"],
-    "soldOut": {"selectors": ["[class*='soldout']", "[class*='soldOut']"], "keywords": ["품절", "마감"]},
-    "ad": {"selectors": ["[class*='ad']"], "keywords": ["광고", "AD"]},
-    "limit": 60,
+    "imgSelectors": ["img.thumb_g", ".area_thumb img", "img"],
+    "linkSelectors": ["a.link_thumb", "a.link_product", "a[href*='/products/']", "a"],
+    "soldOut": {"selectors": [], "keywords": ["품절", "마감", "판매종료"]},
+    "ad": {"selectors": [], "keywords": []},
+    "limit": 80,
 }
 
 
